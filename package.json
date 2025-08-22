@@ -1,0 +1,187 @@
+{
+    "name": "powershell-ast-inspector",
+    "displayName": "PowerShell AST Inspector",
+    "description": "Inspect and visualize the Abstract Syntax Tree (AST) of PowerShell scripts with interactive tree view and detailed property examination",
+    "version": "0.1.0",
+    "publisher": "liamjpeters",
+    "private": true,
+    "author": {
+        "name": "Liam Peters"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/liamjpeters/PowerShell-AST-Inspector.git"
+    },
+    "bugs": {
+        "url": "https://github.com/liamjpeters/PowerShell-AST-Inspector/issues"
+    },
+    "homepage": "https://github.com/liamjpeters/PowerShell-AST-Inspector#readme",
+    "keywords": [
+        "powershell",
+        "ast",
+        "inspector",
+        "abstract syntax tree",
+        "analysis",
+        "parser",
+        "debugging",
+        "development"
+    ],
+    "engines": {
+        "vscode": "^1.103.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "icon": "assets/icon.png",
+    "activationEvents": [
+        "onLanguage:powershell"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "powershellAst.analyzeContent",
+                "title": "Analyze PowerShell AST",
+                "icon": "$(symbol-class)"
+            },
+            {
+                "command": "powershellAst.revealNodeForSelection",
+                "title": "Reveal PowerShell AST Node",
+                "icon": "$(symbol-class)"
+            },
+            {
+                "command": "powershellAst.refresh",
+                "title": "Analyze",
+                "icon": "$(play)"
+            },
+            {
+                "command": "powershellAst.clear",
+                "title": "Clear AST Data",
+                "icon": "$(clear-all)"
+            },
+            {
+                "command": "powershellAst.expandAll",
+                "title": "Expand All",
+                "icon": "$(expand-all)"
+            },
+            {
+                "command": "showast.selectItem",
+                "title": "Select Item"
+            },
+            {
+                "command": "powershellAst.highlightInEditor",
+                "title": "Highlight in Editor",
+                "icon": "$(highlight)"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "when": "editorLangId == powershell && !powershellAst.isAnalyzing",
+                    "command": "powershellAst.analyzeContent",
+                    "group": "navigation"
+                },
+                {
+                    "command": "powershellAst.revealNodeForSelection",
+                    "when": "editorLangId == powershell && !powershellAst.isAnalyzing && powershellAst.hasAstData",
+                    "group": "navigation"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "when": "resourceExtname == .ps1 && !powershellAst.isAnalyzing",
+                    "command": "powershellAst.analyzeContent",
+                    "group": "navigation"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "powershellAst.refresh",
+                    "when": "view == powershellAstTreeView && !powershellAst.isAnalyzing && powershellAst.hasAstData",
+                    "group": "navigation"
+                },
+                {
+                    "command": "powershellAst.clear",
+                    "when": "view == powershellAstTreeView && !powershellAst.isAnalyzing && powershellAst.hasAstData",
+                    "group": "navigation"
+                },
+                {
+                    "command": "powershellAst.expandAll",
+                    "when": "view == powershellAstTreeView && !powershellAst.isAnalyzing && powershellAst.hasAstData",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "powershellAst.highlightInEditor",
+                    "when": "view == powershellAstTreeView && viewItem == astNode && !powershellAst.isAnalyzing",
+                    "group": "navigation"
+                }
+            ]
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "powershellAst",
+                    "title": "PowerShell AST",
+                    "icon": "assets/icon-activity-bar.svg"
+                }
+            ]
+        },
+        "views": {
+            "powershellAst": [
+                {
+                    "id": "powershellAstTreeView",
+                    "name": "AST Structure",
+                    "icon": "assets/icon.svg"
+                },
+                {
+                    "id": "powershellAstPropertiesView",
+                    "name": "Node Properties",
+                    "icon": "assets/icon.svg",
+                    "type": "webview"
+                }
+            ]
+        },
+        "viewsWelcome": [
+            {
+                "view": "powershellAstTreeView",
+                "contents": "No PowerShell AST data available.\n\n[Analyze PowerShell AST](command:powershellAst.analyzeContent)\n\nOpen a PowerShell file (.ps1, .psm1, .psd1) or create a new PowerShell editor to see its AST structure.\n\nUse the analyze button ($(play)) to analyze the currently active editor, or the clear button ($(clear-all)) to return to this welcome screen.",
+                "when": "!powershellAst.isAnalyzing"
+            },
+            {
+                "view": "powershellAstTreeView",
+                "contents": "Analysis in progress...\n\nPlease wait while the PowerShell AST is being analyzed.",
+                "when": "powershellAst.isAnalyzing"
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "PowerShell AST Inspector",
+            "properties": {
+                "powershellAst.powershellFlavor": {
+                    "type": "string",
+                    "enum": ["core", "desktop"],
+                    "default": "core",
+                    "description": "Choose which PowerShell to use for AST analysis. 'core' uses PowerShell Core (pwsh), 'desktop' uses Windows PowerShell (powershell.exe, Windows only)."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./ && npm run copy-assets",
+        "copy-assets": "copyfiles -f \"src/AstParse.ps1\" out/",
+        "watch": "tsc -watch -p ./"
+    },
+    "devDependencies": {
+        "@types/node": "^22.x",
+        "@types/vscode": "^1.103.0",
+        "copyfiles": "^2.4.1",
+        "typescript": "^5.9.2"
+    },
+    "dependencies": {
+        "node-powershell": "^5.0.1"
+    }
+}

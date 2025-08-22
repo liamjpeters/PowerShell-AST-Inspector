@@ -1,0 +1,17 @@
+# Source files - only compiled output is needed
+src/
+tsconfig.json
+
+# Dependencies - these are bundled
+node_modules/
+package-lock.json
+
+# Development files
+.vscode/
+.git/
+.github/
+.gitignore
+CONTRIBUTING.md
+
+# Previous packages
+*.vsix

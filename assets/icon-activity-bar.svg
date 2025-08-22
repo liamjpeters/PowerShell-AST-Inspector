@@ -1,0 +1,27 @@
+<svg viewBox="18 18 92 90" xmlns="http://www.w3.org/2000/svg">
+  <!-- Simplified AST Tree Structure for Activity Bar -->
+  <!-- Thicker lines for better visibility -->
+  
+  <!-- Root node -->
+  <circle cx="64" cy="30" r="10" fill="#ffffff"/>
+  
+  <!-- Level 1 branches - much thicker -->
+  <line x1="64" y1="30" x2="40" y2="70" stroke="#ffffff" stroke-width="6"/>
+  <line x1="64" y1="30" x2="88" y2="70" stroke="#ffffff" stroke-width="6"/>
+  
+  <!-- Level 1 nodes - larger -->
+  <circle cx="40" cy="70" r="8" fill="#ffffff"/>
+  <circle cx="88" cy="70" r="8" fill="#ffffff"/>
+  
+  <!-- Level 2 branches - fewer, thicker -->
+  <line x1="40" y1="70" x2="25" y2="100" stroke="#ffffff" stroke-width="5"/>
+  <line x1="40" y1="70" x2="55" y2="100" stroke="#ffffff" stroke-width="5"/>
+  <line x1="88" y1="70" x2="76" y2="100" stroke="#ffffff" stroke-width="5"/>
+  <line x1="88" y1="70" x2="103" y2="100" stroke="#ffffff" stroke-width="5"/>
+  
+  <!-- Level 2 nodes - larger -->
+  <circle cx="25" cy="100" r="6" fill="#ffffff"/>
+  <circle cx="55" cy="100" r="6" fill="#ffffff"/>
+  <circle cx="76" cy="100" r="6" fill="#ffffff"/>
+  <circle cx="103" cy="100" r="6" fill="#ffffff"/>
+</svg>
