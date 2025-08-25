@@ -12,6 +12,7 @@ package-lock.json
 .github/
 .gitignore
 CONTRIBUTING.md
+GenDocs.ps1
 
 # Previous packages
 *.vsix
