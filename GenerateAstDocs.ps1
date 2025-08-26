@@ -111,15 +111,6 @@ function Get-SimplifiedTypeName {
     ParseTypeName $typeNameString
 }
 
-function Remove-Tags {
-    param (
-        [Parameter(Mandatory)]
-        [string]$InputString
-    )
-    # Replace tags with nothing
-    return ($InputString -replace '<[^>]+>', '')
-}
-
 function Get-Summary {
     param (
         [AllowNull()]
@@ -158,7 +149,7 @@ function Get-Summary {
         $sb.ToString()
     }
     # Remove tags and convert consecutive spaces to just one.
-    ($Text.Trim() -replace '<[^>]+>', '') -replace '\s{2,}', ' '
+    $Text.Trim() -replace '\s{2,}', ' '
 }
 
 function Get-TypeSummary {
@@ -241,4 +232,4 @@ $astTypes | ForEach-Object {
         Summary = $typeSummary
         Properties = $properties
     }
-} | ConvertTo-Json -Depth 5 -Compress | Out-File "$PSScriptRoot\..\src\AstDoc.json" -Force
+} | ConvertTo-Json -Depth 5 -Compress | Out-File "$PSScriptRoot\src\AstDoc.json" -Force
