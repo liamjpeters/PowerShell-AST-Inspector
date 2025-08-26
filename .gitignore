@@ -53,3 +53,5 @@ temp_script.ps1
 .env.development.local
 .env.test.local
 .env.production.local
+
+src/AstDoc.json
