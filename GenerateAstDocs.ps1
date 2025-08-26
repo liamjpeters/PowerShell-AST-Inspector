@@ -23,12 +23,12 @@ Invoke-WebRequest -Uri $nupkgUrl -OutFile $destination -ProgressAction SilentlyC
 
 
 # Expand the nupkg file (it's just a zip container)
-$expandedArchive = Expand-Archive $destination -PassThru
+$expandedArchive = Expand-Archive $destination -PassThru -ErrorAction SilentlyContinue
 
-# Find the xml file we need to parse
-$xmlFile = $expandedArchive | Where-Object {
-    $_ -like "*\System.Management.Automation.xml"
-} | Select-Object -First 1
+# Find the xml file we need to parse (cross-platform)
+$expandedRoot = $expandedArchive[0].Parent.FullName
+$xmlFile = Get-ChildItem -Path $expandedRoot -Recurse -Filter 'System.Management.Automation.xml' |
+    Select-Object -First 1 -ExpandProperty FullName
 
 # Parse the XML file.
 [xml]$xmlDoc = Get-Content $xmlFile
