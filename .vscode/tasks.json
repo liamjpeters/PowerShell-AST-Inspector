@@ -4,37 +4,15 @@
 		{
 			"type": "npm",
 			"script": "compile",
-			"group": "build",
+			"label": "npm: compile",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
 			"presentation": {
 				"panel": "shared"
 			},
 			"problemMatcher": "$tsc"
-		},
-		{
-			"label": "npm: compile",
-			"type": "shell",
-			"command": "npm",
-			"args": [
-				"run",
-				"compile"
-			],
-			"problemMatcher": [
-				"$tsc"
-			],
-			"group": "build"
-		},
-		{
-			"label": "npm: compile",
-			"type": "shell",
-			"command": "npm",
-			"args": [
-				"run",
-				"compile"
-			],
-			"problemMatcher": [
-				"$tsc"
-			],
-			"group": "build"
 		}
 	]
 }
