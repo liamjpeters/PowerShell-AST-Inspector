@@ -41,6 +41,80 @@ interface PowerShellAstNode {
     parentHashCode: number | null; // Parent's hash code for tree building
 }
 
+// Documentation types loaded from AstDoc.json
+interface AstDocProperty {
+    Name: string;
+    TypeName: string;
+    EnumValues?: string[] | string; // some entries may have "" or array
+    Summary?: string;
+}
+
+interface AstDocEntry {
+    Name: string; // e.g., ScriptBlockAst
+    Summary?: string;
+    Properties?: AstDocProperty[];
+}
+
+class DocStore {
+    private static _instance: DocStore;
+    private _byType: Map<string, AstDocEntry> = new Map();
+
+    static instance(): DocStore {
+        if (!DocStore._instance) {
+            DocStore._instance = new DocStore();
+        }
+        return DocStore._instance;
+    }
+
+    loadFromFileSync(jsonPath: string): void {
+        try {
+            if (!fs.existsSync(jsonPath)) {
+                console.warn(`AstDoc.json not found at ${jsonPath}`);
+                return;
+            }
+            const text = fs.readFileSync(jsonPath, 'utf8');
+            const data = JSON.parse(text) as AstDocEntry[];
+            this._byType.clear();
+            for (const entry of data) {
+                if (entry && entry.Name) {
+                    this._byType.set(entry.Name, entry);
+                }
+            }
+            console.log(`Loaded AST docs: ${this._byType.size} types`);
+        } catch (err) {
+            console.error('Failed to load AstDoc.json:', err);
+        }
+    }
+
+    getTypeSummary(typeName: string): string | undefined {
+        return this._byType.get(typeName)?.Summary;
+    }
+
+    getDisplayTypeName(typeName: string): string | undefined {
+        // In AstDoc, the type name key is the display name to show
+        if (this._byType.has(typeName)) {
+            return this._byType.get(typeName)!.Name;
+        }
+        return undefined;
+    }
+
+    getPropertySummary(typeName: string, propName: string): string | undefined {
+        const props = this._byType.get(typeName)?.Properties || [];
+        const found = props.find(p => p.Name === propName);
+        return found?.Summary;
+    }
+    
+    getPropertyTypeName(typeName: string, propName: string): string | undefined {
+        const props = this._byType.get(typeName)?.Properties || [];
+        const found = props.find(p => p.Name === propName);
+        const t = found?.TypeName;
+        if (typeof t === 'string' && t.length > 0) {
+            return t;
+        }
+        return undefined;
+    }
+}
+
 // Global state manager
 class AstState {
     private static instance: AstState;
@@ -242,6 +316,7 @@ class AstTreeDataProvider implements vscode.TreeDataProvider<PowerShellAstNode> 
 class AstPropertiesProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private astState = AstState.getInstance();
+    private docs = DocStore.instance();
 
     constructor(private readonly extensionUri: vscode.Uri) {
         // Listen for selection changes
@@ -301,11 +376,14 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
 
     private getPropertiesHtml(node: PowerShellAstNode): string {
         // Main node information
+        const displayType = this.docs.getDisplayTypeName(node.type) || node.type;
         const mainProperties = [
-            { name: 'Type', value: node.type, typeName: 'System.String' },
+            { name: 'Type', value: displayType, typeName: 'System.String' },
             { name: 'Text', value: node.text || '(empty)', typeName: 'System.String' },
             { name: 'Extent', value: node.extentString || `Ln ${node.startLine}, Col ${node.startColumn} -> Ln ${node.endLine}, Col ${node.endColumn}`,typeName: 'InternalScriptExtent' }
         ];
+
+        const nodeSummary = this.docs.getTypeSummary(node.type);
 
         // AST properties from the properties array
         let allRowsHtml = mainProperties.map(prop => `
@@ -313,6 +391,7 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
                 <div class="property-name">
                     ${this.escapeHtml(prop.name)}
                 </div>
+                ${prop.name === 'Type' && nodeSummary ? `<div class="property-help">${this.escapeHtml(nodeSummary)}</div>` : ''}
                 <div class="property-value">
                     ${this.escapeHtml(prop.value || '(null)')}
                 </div>
@@ -329,11 +408,12 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
                     <div class="property-name">
                         ${this.escapeHtml(prop.Name)}
                     </div>
+                    ${(() => { const h = this.docs.getPropertySummary(node.type, prop.Name); return h ? `<div class="property-help">${this.escapeHtml(h)}</div>` : ''; })()}
                     <div class="property-value">
                         ${this.escapeHtml(prop.Value || '(null)')}
                     </div>
                     <div class="property-type">
-                        ${this.escapeHtml(prop.TypeName)}
+                        ${this.escapeHtml(this.docs.getPropertyTypeName(node.type, prop.Name) || prop.TypeName)}
                     </div>
                 </div>
             `).join('');
@@ -369,6 +449,15 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
                     white-space: normal;
                     padding-top: 8px;
                     padding-bottom: 8px;
+                }
+
+                .property-help {
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.9em;
+                    margin-top: 6px;
+                    margin-bottom: 6px;
+                    word-break: break-word;
+                    white-space: normal;
                 }
 
                 .property-type {
@@ -586,6 +675,9 @@ export function activate(context: vscode.ExtensionContext) {
     
     try {
         const astState = AstState.getInstance();
+    // Load AST documentation (generated JSON) once on activation
+    const docsPath = path.join(__dirname, 'AstDoc.json');
+    DocStore.instance().loadFromFileSync(docsPath);
 
         // Initialize context states
         vscode.commands.executeCommand('setContext', 'powershellAst.isAnalyzing', false);

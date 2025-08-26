@@ -171,8 +171,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./ && npm run copy-assets",
-        "copy-assets": "copyfiles -f \"src/AstParse.ps1\" out/",
+    "compile": "tsc -p ./ && npm run copy-assets",
+    "copy-assets": "copyfiles -f \"src/AstParse.ps1\" out/ && copyfiles -f \"src/AstDoc.json\" out/",
         "watch": "tsc -watch -p ./"
     },
     "devDependencies": {

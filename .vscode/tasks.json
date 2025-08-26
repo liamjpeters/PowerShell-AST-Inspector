@@ -1,14 +1,40 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "type": "npm",
-            "script": "compile",
-            "group": "build",
-            "presentation": {
-                "panel": "shared"
-            },
-            "problemMatcher": "$tsc"
-        }
-    ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "compile",
+			"group": "build",
+			"presentation": {
+				"panel": "shared"
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "npm: compile",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"compile"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "npm: compile",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"compile"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
 }
