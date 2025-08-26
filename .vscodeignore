@@ -12,7 +12,7 @@ package-lock.json
 .github/
 .gitignore
 CONTRIBUTING.md
-GenDocs.ps1
+GenerateAstDocs.ps1
 
 # Previous packages
 *.vsix
