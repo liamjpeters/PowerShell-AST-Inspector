@@ -31,6 +31,8 @@ The AST inspection provides information about:
 - Source location (line and column numbers)
 - Node relationships (parent-child hierarchy)
 - Specific properties (command names, variable names, string values)
+- Documentation for each node and property - straight from the PowerShell source
+  code
 
 ## Development
 

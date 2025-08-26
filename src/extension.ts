@@ -375,117 +375,243 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
     }
 
     private getPropertiesHtml(node: PowerShellAstNode): string {
-        // Main node information
         const displayType = this.docs.getDisplayTypeName(node.type) || node.type;
-        const mainProperties = [
-            { name: 'Type', value: displayType, typeName: 'System.String' },
-            { name: 'Text', value: node.text || '(empty)', typeName: 'System.String' },
-            { name: 'Extent', value: node.extentString || `Ln ${node.startLine}, Col ${node.startColumn} -> Ln ${node.endLine}, Col ${node.endColumn}`,typeName: 'InternalScriptExtent' }
-        ];
+    const nodeSummary = this.docs.getTypeSummary(node.type) || '';
+        const extentText = node.extentString || `Ln ${node.startLine}, Col ${node.startColumn} → Ln ${node.endLine}, Col ${node.endColumn}`;
 
-        const nodeSummary = this.docs.getTypeSummary(node.type);
+        const properties = (node.properties || []).map(p => ({
+            name: p.Name,
+            value: p.Value || '(null)',
+            typeName: this.docs.getPropertyTypeName(node.type, p.Name) || p.TypeName,
+            summary: this.docs.getPropertySummary(node.type, p.Name) || ''
+        }));
 
-        // AST properties from the properties array
-        let allRowsHtml = mainProperties.map(prop => `
-            <div class="property">
-                <div class="property-name">
-                    ${this.escapeHtml(prop.name)}
-                </div>
-                ${prop.name === 'Type' && nodeSummary ? `<div class="property-help">${this.escapeHtml(nodeSummary)}</div>` : ''}
-                <div class="property-value">
-                    ${this.escapeHtml(prop.value || '(null)')}
-                </div>
-                <div class="property-type">
-                    ${this.escapeHtml(prop.typeName)}
+        const itemsHtml = properties.map((p, idx) => `
+            <div class="accordion-item" data-index="${idx}" aria-expanded="false">
+                <button class="accordion-header" aria-controls="section-${idx}" aria-expanded="false">
+                    <span class="prop-name">${this.escapeHtml(p.name)}</span>
+                    <span class="chevron" aria-hidden="true">▸</span>
+                </button>
+                <div id="section-${idx}" class="accordion-content" role="region" aria-labelledby="section-${idx}-label">
+                    <div class="prop-meta">
+                        <span class="type-badge">${this.escapeHtml(p.typeName)}</span>
+                    </div>
+                    ${p.summary ? `<div class="prop-summary">${this.formatDocText(p.summary)}</div>` : ''}
+                    <div class="prop-value-label">Value</div>
+                    <div class="prop-value">${this.escapeHtml(p.value).replace(/\n/g, '<br>')}</div>
                 </div>
             </div>
         `).join('');
 
-        if (node.properties && node.properties.length > 0) {
-            allRowsHtml += node.properties.map(prop => `
+        const hasProps = properties.length > 0;
 
-                <div class="property">
-                    <div class="property-name">
-                        ${this.escapeHtml(prop.Name)}
-                    </div>
-                    ${(() => { const h = this.docs.getPropertySummary(node.type, prop.Name); return h ? `<div class="property-help">${this.escapeHtml(h)}</div>` : ''; })()}
-                    <div class="property-value">
-                        ${this.escapeHtml(prop.Value || '(null)')}
-                    </div>
-                    <div class="property-type">
-                        ${this.escapeHtml(this.docs.getPropertyTypeName(node.type, prop.Name) || prop.TypeName)}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        return `
+    return `
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
             <style>
-                body { 
-                    font-family: var(--vscode-font-family); 
-                    padding: 0px 10px;
-                    color: var(--vscode-foreground);
+                :root {
+                    --fg: var(--vscode-foreground);
+                    --muted: var(--vscode-descriptionForeground);
+                    --border: var(--vscode-panel-border);
+                    --panelBg: var(--vscode-editor-background);
+                    --accentBg: var(--vscode-editor-foreground);
+                    --accentFg: var(--vscode-editor-background);
+                    --hoverBg: var(--vscode-list-hoverBackground);
+                    --focusBorder: var(--vscode-focusBorder);
+                }
+
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    color: var(--fg);
+                    background: transparent;
+                    font-family: var(--vscode-font-family);
                     font-size: var(--vscode-font-size);
+                    line-height: 1.4;
                 }
 
-                .property {
-                    border-bottom: 1px solid var(--vscode-panel-border);
-                    padding: 16px 16px;
+                .container {
+                    padding: 10px 10px 16px;
                 }
 
-                .property-name { 
-                    font-weight: bold; 
-                    color: var(--vscode-symbolIcon-fieldForeground);
+                .header {
+                    padding: 12px 12px 14px;
+                    border-bottom: 1px solid var(--border);
                 }
-
-                .property-value { 
-                    font-family: var(--vscode-editor-font-family);
-                    color: var(--vscode-editor-foreground);
-                    word-break: break-word;
-                    white-space: normal;
-                    padding-top: 8px;
-                    padding-bottom: 8px;
+                .title-row {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    gap: 8px;
                 }
-
-                .property-help {
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 0.9em;
-                    margin-top: 6px;
-                    margin-bottom: 6px;
-                    word-break: break-word;
-                    white-space: normal;
+                .type-title {
+                    font-weight: 600;
                 }
-
-                .property-type {
+                .type-badge {
                     display: inline-block;
-                    font-size: 0.7em;
-                    font-style: normal;
+                    font-size: 0.75em;
                     font-family: var(--vscode-editor-font-family);
-                    background: var(--vscode-editor-foreground);
-                    color: var(--vscode-editor-background);
-                    border-radius: 8px;
-                    padding: 4px 8px;
+                    background: var(--accentBg);
+                    color: var(--accentFg);
+                    border-radius: 10px;
+                    padding: 2px 8px;
+                    white-space: nowrap;
+                }
+                .summary {
+                    color: var(--muted);
+                    margin-top: 8px;
                     word-break: break-word;
-                    white-space: normal;
+                }
+                code.inline-code {
+                    font-family: var(--vscode-editor-font-family);
+                    background: var(--panelBg);
+                    color: var(--fg);
+                    border: 1px solid var(--border);
+                    border-radius: 4px;
+                    padding: 0 4px;
+                }
+                .meta {
+                    margin-top: 10px;
+                    font-size: 0.9em;
+                    color: var(--muted);
+                }
+                .extent {
+                    font-family: var(--vscode-editor-font-family);
+                }
+                .node-text-label {
+                    margin-top: 10px;
+                    font-size: 0.9em;
+                    color: var(--muted);
+                }
+                .node-text {
+                    font-family: var(--vscode-editor-font-family);
+                    color: var(--fg);
+                    background: var(--panelBg);
+                    border: 1px solid var(--border);
+                    border-radius: 6px;
+                    padding: 8px;
+                    white-space: pre; /* preserve newlines and spaces; no wrapping */
+                    overflow-x: auto;
+                    overflow-y: auto;
+                    max-height: 220px; /* sensible default */
+                }
+
+                .section-title {
+                    margin: 14px 12px 8px;
+                    font-weight: 600;
+                }
+
+                .accordion {
+                    border-top: 1px solid var(--border);
+                }
+                .accordion-item {
+                    border-bottom: 1px solid var(--border);
+                }
+                .accordion-header {
+                    width: 100%;
+                    text-align: left;
+                    padding: 12px;
+                    background: transparent;
+                    color: inherit;
+                    border: none;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 8px;
+                    cursor: pointer;
+                }
+                .accordion-header:hover { background: var(--hoverBg); }
+                .accordion-header:focus { outline: 1px solid var(--focusBorder); }
+                .prop-name { font-weight: 600; }
+                .chevron { transition: transform 120ms ease; }
+                .accordion-item[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+
+                .accordion-content {
+                    display: none;
+                    padding: 0 12px 12px;
+                }
+                .accordion-item[aria-expanded="true"] .accordion-content { display: block; }
+
+                .prop-meta { margin: 2px 0 8px; }
+                .prop-summary {
+                    color: var(--muted);
+                    margin-bottom: 8px;
+                    word-break: break-word;
+                }
+                .prop-value-label { 
+                    margin-top: 6px; 
+                    font-size: 0.9em; 
+                    color: var(--muted);
+                }
+                .prop-value {
+                    font-family: var(--vscode-editor-font-family);
+                    color: var(--fg);
+                    background: var(--panelBg);
+                    border: 1px solid var(--border);
+                    border-radius: 6px;
+                    padding: 8px;
+                    word-break: break-word;
+                    overflow: auto;
+                    max-height: 180px;
+                }
+
+                @media (max-width: 480px) {
+                    .container { padding: 6px; }
+                    .header { padding: 8px; }
+                    .accordion-header { padding: 10px; }
+                    .accordion-content { padding: 0 10px 10px; }
                 }
             </style>
         </head>
         <body>
             <div class="container">
-                ${allRowsHtml}
+                <div class="header">
+                    <div class="title-row">
+                        <span class="type-title">${this.escapeHtml(displayType)}</span>
+                        <span class="type-badge">${this.escapeHtml(node.type)}</span>
+                    </div>
+                    ${nodeSummary ? `<div class=\"summary\">${this.formatDocText(nodeSummary)}</div>` : ''}
+                    <div class="meta">
+                        <span class="extent">${this.escapeHtml(extentText)}</span>
+                    </div>
+                    <div class="node-text-label">Text</div>
+                    <div class="node-text">${this.escapeHtml(node.text || '(empty)')}</div>
+                </div>
+
+                <div class="section-title">Properties ${hasProps ? `(${properties.length})` : ''}</div>
+                <div class="accordion" role="list">
+                    ${hasProps ? itemsHtml : `<div class="accordion-item" aria-expanded="false"><div class="accordion-content" style="display:block; padding: 8px 12px; color: var(--muted);">No properties.</div></div>`}
+                </div>
             </div>
 
             <script>
-                // Force scroll to top on every update
-                setTimeout(function() {
-                    window.scrollTo(0, 0);
-                    document.body.scrollTop = 0;
-                    document.documentElement.scrollTop = 0;
-                }, 0);
+                (function() {
+                    const items = Array.from(document.querySelectorAll('.accordion-item'));
+                    items.forEach(item => {
+                        const header = item.querySelector('.accordion-header');
+                        if (!header) return;
+                        header.addEventListener('click', () => {
+                            const isOpen = item.getAttribute('aria-expanded') === 'true';
+                            // close all
+                            items.forEach(i => {
+                                i.setAttribute('aria-expanded', 'false');
+                                const btn = i.querySelector('.accordion-header');
+                                if (btn) btn.setAttribute('aria-expanded', 'false');
+                            });
+                            // open current if it was closed
+                            if (!isOpen) {
+                                item.setAttribute('aria-expanded', 'true');
+                                header.setAttribute('aria-expanded', 'true');
+                            }
+                        });
+                    });
+
+                    // Scroll to top on update
+                    setTimeout(function(){ window.scrollTo(0, 0); }, 0);
+                })();
             </script>
         </body>
         </html>`;
@@ -498,6 +624,23 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    // Render doc text allowing <c>...</c> segments to appear as inline code while escaping everything else
+    private formatDocText(text: string): string {
+        if (!text) return '';
+        const re = /<c>([\s\S]*?)<\/c>/g;
+        let out = '';
+        let lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+            const before = text.substring(lastIndex, m.index);
+            out += this.escapeHtml(before);
+            out += `<code class="inline-code">${this.escapeHtml(m[1])}</code>`;
+            lastIndex = re.lastIndex;
+        }
+        out += this.escapeHtml(text.substring(lastIndex));
+        return out;
     }
 }
 
