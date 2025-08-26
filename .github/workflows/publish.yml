@@ -27,6 +27,11 @@ jobs:
     - name: Install VSCE
       run: npm install -g @vscode/vsce@latest
       
+    - name: Generate AST docs (AstDoc.json)
+      shell: pwsh
+      working-directory: ${{ github.workspace }}
+      run: ./GenerateAstDocs.ps1
+
     - name: Compile extension
       run: npm run compile
       
