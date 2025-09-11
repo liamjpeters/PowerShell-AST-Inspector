@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 
 // PowerShell AST Node interface
 interface AstProperty {
@@ -760,22 +761,18 @@ class PowerShellAstAnalyzer {
             let flavor = config.get<string>('powershellFlavor', 'core');
             const isWindows = os.platform() === 'win32';
 
-            // Force 'core' on non-Windows
-            if (!isWindows) {
+            if (!isWindows && flavor === 'desktop') {
+                vscode.window.showWarningMessage("PowerShell Desktop is only available on Windows. Using PowerShell Core instead.");
                 flavor = 'core';
             }
 
-            if (!isWindows && flavor === 'desktop') {
-                vscode.window.showWarningMessage("PowerShell Desktop is only available on Windows. Using PowerShell Core instead.");
-            }
-
-            const exe = (flavor === 'desktop') ? 'powershell.exe' : (isWindows ? 'pwsh.exe' : 'pwsh');
+            const exe = resolvePowerShellExecutable(flavor);
+            console.log(`Using PowerShell executable: ${exe}`);
 
             const ps = spawn(exe, [
                 '-NoProfile', 
                 '-NoLogo', 
-                '-NonInteractive', 
-                '-OutputFormat', 'Text',
+                '-NonInteractive',
                 '-Command', script
             ], {
                 stdio: ['pipe', 'pipe', 'pipe']
@@ -810,6 +807,78 @@ class PowerShellAstAnalyzer {
                 reject(error);
             });
         });
+    }
+}
+
+function isExecutable(file: string): boolean {
+    try {
+        fs.accessSync(file, fs.constants.X_OK);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function resolvePowerShellExecutable(flavor: string): string {
+    const isWindows = os.platform() === 'win32';
+    if (isWindows) {
+        if (flavor === 'desktop') {
+            // Prefer powershell.exe, fallback to pwsh.exe
+            try {
+                const psPath = execSync('where powershell.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+                if (psPath && isExecutable(psPath)) return psPath;
+            } catch {}
+            try {
+                const pwshPath = execSync('where pwsh.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+                if (pwshPath && isExecutable(pwshPath)) return pwshPath;
+            } catch {}
+            return 'powershell.exe';
+        } else {
+            // PowerShell Core
+            try {
+                const pwshPath = execSync('where pwsh.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+                if (pwshPath && isExecutable(pwshPath)) return pwshPath;
+            } catch {}
+            try {
+                const psPath = execSync('where powershell.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+                if (psPath && isExecutable(psPath)) return psPath;
+            } catch {}
+            return 'pwsh.exe';
+        }
+    } else {
+        // macOS/Linux
+        if (flavor === 'desktop') {
+            // Desktop is not available, fallback to core
+            flavor = 'core';
+        }
+        // Try which pwsh
+        try {
+            const pwshPath = execSync('which pwsh', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+            if (pwshPath && isExecutable(pwshPath)) {
+                // If it's a snap shim, try to handle it
+                if (pwshPath === '/snap/bin/pwsh') {
+                    const snapPwsh = '/snap/powershell/current/opt/powershell/pwsh';
+                    if (fs.existsSync(snapPwsh) && isExecutable(snapPwsh)) {
+                        return snapPwsh;
+                    }
+                } else {
+                    return pwshPath;
+                }
+            }
+        } catch {}
+        // Try common locations
+        const candidates = [
+            '/snap/powershell/current/opt/powershell/pwsh',
+            '/usr/local/bin/pwsh',
+            '/usr/bin/pwsh',
+            '/opt/homebrew/bin/pwsh', // Apple Silicon Homebrew
+            '/opt/microsoft/powershell/7/pwsh'
+        ];
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate) && isExecutable(candidate)) return candidate;
+        }
+        // Fallback
+        return 'pwsh';
     }
 }
 
