@@ -377,10 +377,17 @@ class AstPropertiesProvider implements vscode.WebviewViewProvider {
 
     private getPropertiesHtml(node: PowerShellAstNode): string {
         const displayType = this.docs.getDisplayTypeName(node.type) || node.type;
-    const nodeSummary = this.docs.getTypeSummary(node.type) || '';
+        const nodeSummary = this.docs.getTypeSummary(node.type) || '';
         const extentText = node.extentString || `Ln ${node.startLine}, Col ${node.startColumn} → Ln ${node.endLine}, Col ${node.endColumn}`;
 
-        const properties = (node.properties || []).map(p => ({
+        // Coerce node.properties (object or array or undefined) into an array
+        const rawProps: AstProperty[] = (() => {
+            const src: any = (node as any).properties;
+            if (!src) return [];
+            return Array.isArray(src) ? src : [src];
+        })();
+
+        const properties = rawProps.map(p => ({
             name: p.Name,
             value: p.Value || '(null)',
             typeName: this.docs.getPropertyTypeName(node.type, p.Name) || p.TypeName,
