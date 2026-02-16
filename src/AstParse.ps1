@@ -1,10 +1,20 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='Content')]
 param (
     [AllowEmptyString()]
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName='Content')]
     [string]
-    $Content
+    $Content,
+
+    [AllowEmptyString()]
+    [Parameter(Mandatory, ParameterSetName='Base64Content')]
+    [string]
+    $Base64Content
 )
+
+if ($PsCmdlet.ParameterSetName -eq 'Base64Content') {
+    $bytes = [System.Convert]::FromBase64String($Base64Content)
+    $Content = [System.Text.Encoding]::UTF8.GetString($bytes)
+}
 
 $ErrorActionPreference = 'Stop'
 $WarningPreference = 'SilentlyContinue'
