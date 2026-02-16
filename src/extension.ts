@@ -26,6 +26,21 @@ interface FlatAstNode {
     properties: AstProperty[];
 }
 
+interface AstError {
+    message: string;
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+}
+
+interface AstResponse {
+    nodes: FlatAstNode[];
+    errors: AstError[];
+    error?: boolean; // Legacy error handling
+    message?: string; // Legacy error message
+}
+
 interface PowerShellAstNode {
     type: string;
     text: string;
@@ -40,6 +55,7 @@ interface PowerShellAstNode {
     id: string; // Unique identifier for each node
     hashCode: number; // PowerShell object hash code
     parentHashCode: number | null; // Parent's hash code for tree building
+    isError?: boolean; // Flag for error nodes
 }
 
 // Documentation types loaded from AstDoc.json
@@ -247,6 +263,14 @@ class AstTreeDataProvider implements vscode.TreeDataProvider<PowerShellAstNode> 
         item.id = element.id;
         
         // Add custom icons based on AST node type
+        if (element.isError) {
+             item.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
+             item.tooltip = `Error: ${element.text}\nLocation: ${element.extentString}`;
+             item.label = `Error: ${element.text}`;
+             item.description = element.extentString;
+             return item;
+        }
+
         switch (element.type) {
             case 'FunctionDefinitionAst':
                 item.iconPath = new vscode.ThemeIcon('symbol-function');
@@ -684,16 +708,50 @@ class PowerShellAstAnalyzer {
             if (result.trim()) {
                 try {
                     const parseStart = performance.now();
-                    const astData = JSON.parse(result);
+                    const response = JSON.parse(result) as AstResponse;
 
-                    // Check if we got an error response
-                    if (astData.error) {
-                        throw new Error(`PowerShell parsing error: ${astData.message}`);
+                    // Check if we got a legacy error response or strict mode error
+                    if (response.error) {
+                        throw new Error(`PowerShell parsing error: ${response.message}`);
                     }
+                    
+                    const astData = response.nodes || [];
+                    const errors = response.errors || [];
                     
                     // Map the flat data structure from PowerShell to tree structure
                     const mapStart = performance.now();
                     const mappedData = this.buildTreeFromFlatData(astData);
+
+                    // Append errors as root nodes
+                    if (errors.length > 0) {
+                        // Sort errors by position
+                        errors.sort((a, b) => {
+                            if (a.startLine !== b.startLine) {
+                                return a.startLine - b.startLine;
+                            }
+                            return a.startColumn - b.startColumn;
+                        });
+
+                        const errorNodes = errors.map((err, index) => ({
+                            id: `error_${index}`,
+                            hashCode: -1 - index,
+                            parentHashCode: null,
+                            type: 'ParseError',
+                            text: err.message,
+                            extentString: `Ln ${err.startLine}, Col ${err.startColumn}`,
+                            startLine: err.startLine,
+                            startColumn: err.startColumn,
+                            endLine: err.endLine,
+                            endColumn: err.endColumn,
+                            textLength: 0,
+                            isError: true,
+                            children: [],
+                            properties: []
+                        } as PowerShellAstNode));
+                        
+                        // Add errors to the beginning of the root nodes
+                        mappedData.unshift(...errorNodes);
+                    }
                     
                     return mappedData;
                 } catch (parseError) {
