@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { PowerShellService } from './PowerShellService';
 
 // PowerShell AST Node interface
 interface AstProperty {
@@ -26,6 +26,21 @@ interface FlatAstNode {
     properties: AstProperty[];
 }
 
+interface AstError {
+    message: string;
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+}
+
+interface AstResponse {
+    nodes: FlatAstNode[];
+    errors: AstError[];
+    error?: boolean; // Legacy error handling
+    message?: string; // Legacy error message
+}
+
 interface PowerShellAstNode {
     type: string;
     text: string;
@@ -40,6 +55,7 @@ interface PowerShellAstNode {
     id: string; // Unique identifier for each node
     hashCode: number; // PowerShell object hash code
     parentHashCode: number | null; // Parent's hash code for tree building
+    isError?: boolean; // Flag for error nodes
 }
 
 // Documentation types loaded from AstDoc.json
@@ -126,12 +142,53 @@ class AstState {
     private _onDidChangeSelection = new vscode.EventEmitter<PowerShellAstNode | null>();
     private _onDidChangeAnalyzing = new vscode.EventEmitter<boolean>();
     private _nodeMap: Map<number, PowerShellAstNode> = new Map();
+    private _powerShellService: PowerShellService | null = null;
+    private _outputChannel: vscode.OutputChannel | null = null;
 
     static getInstance(): AstState {
         if (!AstState.instance) {
             AstState.instance = new AstState();
         }
         return AstState.instance;
+    }
+
+    public initialise(context: vscode.ExtensionContext) {
+        if (!this._outputChannel) {
+             this._outputChannel = vscode.window.createOutputChannel("PowerShell AST Inspector");
+             context.subscriptions.push(this._outputChannel);
+        }
+        
+        if (!this._powerShellService) {
+            this._powerShellService = new PowerShellService(this._outputChannel);
+            context.subscriptions.push(new vscode.Disposable(() => {
+                // Since this is a synchronous disposable, we can't await.
+                // However, we should trigger the cleanup.
+                this._powerShellService?.dispose().catch(err => console.error(err));
+            }));
+        }
+    }
+
+    public async restartPowerShellService() {
+        if (this._isAnalyzing) {
+            this._outputChannel?.appendLine('Analysis in progress, deferring restart...');
+            // In a real implementation, we might want to cancel the current task or wait
+            // For now, we'll just log and proceed cautiously, or ideally wait for idle
+            // But since node-powershell calls are awaited, simply creating a new service
+            // and letting the old one be disposed (or manually disposing) is safer if we ensure no new calls use the old one.
+            // The simplest approach here to avoid complex locking is to just dispose and recreate.
+            // If an analysis is running on the old service instance, it will fail or complete on the old instance (if reference held).
+        }
+
+        if (this._powerShellService) {
+            await this._powerShellService.dispose();
+        }
+        if (this._outputChannel) {
+            this._powerShellService = new PowerShellService(this._outputChannel);
+        }
+    }
+
+    get powerShellService(): PowerShellService | null {
+        return this._powerShellService;
     }
 
     get onDidChangeSelection() {
@@ -247,6 +304,14 @@ class AstTreeDataProvider implements vscode.TreeDataProvider<PowerShellAstNode> 
         item.id = element.id;
         
         // Add custom icons based on AST node type
+        if (element.isError) {
+             item.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
+             item.tooltip = `Error: ${element.text}\nLocation: ${element.extentString}`;
+             item.label = `Error: ${element.text}`;
+             item.description = element.extentString;
+             return item;
+        }
+
         switch (element.type) {
             case 'FunctionDefinitionAst':
                 item.iconPath = new vscode.ThemeIcon('symbol-function');
@@ -667,33 +732,69 @@ class PowerShellAstAnalyzer {
     }
 
     static async analyzeContent(content: string): Promise<PowerShellAstNode[]> {
+        // Handle empty content gracefully
+        if (!content || content.trim().length === 0) {
+            return [];
+        }
+
         const startTime = performance.now();
+        const astState = AstState.getInstance();
+
+        if (!astState.powerShellService) {
+             throw new Error('PowerShell Service not initialised');
+        }
 
         try {
-            // Use the external AstParse.ps1 script with -Content parameter
-            const path = require('path');
-            const astParseScript = path.join(__dirname, 'AstParse.ps1');
+            // Execute PowerShell script using persistent service
+            const result = await astState.powerShellService.analyze(content);
             
-            // Escape the content for PowerShell - replace single quotes with double single quotes
-            const escapedContent = content.replace(/'/g, "''");
-
-            const powershellScript = `& "${astParseScript}" -Content '${escapedContent}'`;
-
-            // Execute PowerShell script
-            const result = await this.executePowerShell(powershellScript);
-            if (result.trim()) {
+            if (result && result.trim()) {
                 try {
                     const parseStart = performance.now();
-                    const astData = JSON.parse(result);
+                    const response = JSON.parse(result) as AstResponse;
 
-                    // Check if we got an error response
-                    if (astData.error) {
-                        throw new Error(`PowerShell parsing error: ${astData.message}`);
+                    // Check if we got a legacy error response or strict mode error
+                    if (response.error) {
+                        throw new Error(`PowerShell parsing error: ${response.message}`);
                     }
+                    
+                    const astData = response.nodes || [];
+                    const errors = response.errors || [];
                     
                     // Map the flat data structure from PowerShell to tree structure
                     const mapStart = performance.now();
                     const mappedData = this.buildTreeFromFlatData(astData);
+
+                    // Append errors as root nodes
+                    if (errors.length > 0) {
+                        // Sort errors by position
+                        errors.sort((a, b) => {
+                            if (a.startLine !== b.startLine) {
+                                return a.startLine - b.startLine;
+                            }
+                            return a.startColumn - b.startColumn;
+                        });
+
+                        const errorNodes = errors.map((err, index) => ({
+                            id: `error_${index}`,
+                            hashCode: -1 - index,
+                            parentHashCode: null,
+                            type: 'ParseError',
+                            text: err.message,
+                            extentString: `Ln ${err.startLine}, Col ${err.startColumn}`,
+                            startLine: err.startLine,
+                            startColumn: err.startColumn,
+                            endLine: err.endLine,
+                            endColumn: err.endColumn,
+                            textLength: 0,
+                            isError: true,
+                            children: [],
+                            properties: []
+                        } as PowerShellAstNode));
+                        
+                        // Add errors to the beginning of the root nodes
+                        mappedData.unshift(...errorNodes);
+                    }
                     
                     return mappedData;
                 } catch (parseError) {
@@ -758,135 +859,6 @@ class PowerShellAstAnalyzer {
 
         return rootNodes;
     }
-
-    private static async executePowerShell(script: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const { spawn } = require('child_process');
-            
-
-            const config = vscode.workspace.getConfiguration('powershellAst');
-            let flavor = config.get<string>('powershellFlavor', 'core');
-            const isWindows = os.platform() === 'win32';
-
-            if (!isWindows && flavor === 'desktop') {
-                vscode.window.showWarningMessage("PowerShell Desktop is only available on Windows. Using PowerShell Core instead.");
-                flavor = 'core';
-            }
-
-            const exe = resolvePowerShellExecutable(flavor);
-            console.log(`Using PowerShell executable: ${exe}`);
-
-            const ps = spawn(exe, [
-                '-NoProfile', 
-                '-NoLogo', 
-                '-NonInteractive',
-                '-Command', script
-            ], {
-                stdio: ['pipe', 'pipe', 'pipe']
-            });
-
-            let stdout = '';
-            let stderr = '';
-
-            ps.stdout.on('data', (data: Buffer) => {
-                stdout += data.toString();
-            });
-
-            ps.stderr.on('data', (data: Buffer) => {
-                stderr += data.toString();
-            });
-
-            ps.on('close', (code: number) => {
-                if (code === 0) {
-                    // Clean the output by removing any ANSI escape sequences and extra whitespace
-                    const cleanOutput = stdout
-                        .replace(/\x1b\[[0-9;]*m/g, '') // Remove ANSI color codes
-                        .replace(/\r\n/g, '\n')         // Normalize line endings
-                        .trim();                        // Remove leading/trailing whitespace
-                    resolve(cleanOutput);
-                } else {
-                    reject(new Error(`PowerShell execution failed (exit code ${code}). STDERR: ${stderr}. STDOUT: ${stdout}`));
-                }
-            });
-
-            ps.on('error', (error: Error) => {
-                console.error('PowerShell process error:', error);
-                reject(error);
-            });
-        });
-    }
-}
-
-function isExecutable(file: string): boolean {
-    try {
-        fs.accessSync(file, fs.constants.X_OK);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function resolvePowerShellExecutable(flavor: string): string {
-    const isWindows = os.platform() === 'win32';
-    if (isWindows) {
-        if (flavor === 'desktop') {
-            // Prefer powershell.exe, fallback to pwsh.exe
-            try {
-                const psPath = execSync('where powershell.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
-                if (psPath && isExecutable(psPath)) return psPath;
-            } catch {}
-            try {
-                const pwshPath = execSync('where pwsh.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
-                if (pwshPath && isExecutable(pwshPath)) return pwshPath;
-            } catch {}
-            return 'powershell.exe';
-        } else {
-            // PowerShell Core
-            try {
-                const pwshPath = execSync('where pwsh.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
-                if (pwshPath && isExecutable(pwshPath)) return pwshPath;
-            } catch {}
-            try {
-                const psPath = execSync('where powershell.exe', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
-                if (psPath && isExecutable(psPath)) return psPath;
-            } catch {}
-            return 'pwsh.exe';
-        }
-    } else {
-        // macOS/Linux
-        if (flavor === 'desktop') {
-            // Desktop is not available, fallback to core
-            flavor = 'core';
-        }
-        // Try which pwsh
-        try {
-            const pwshPath = execSync('which pwsh', { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
-            if (pwshPath && isExecutable(pwshPath)) {
-                // If it's a snap shim, try to handle it
-                if (pwshPath === '/snap/bin/pwsh') {
-                    const snapPwsh = '/snap/powershell/current/opt/powershell/pwsh';
-                    if (fs.existsSync(snapPwsh) && isExecutable(snapPwsh)) {
-                        return snapPwsh;
-                    }
-                } else {
-                    return pwshPath;
-                }
-            }
-        } catch {}
-        // Try common locations
-        const candidates = [
-            '/snap/powershell/current/opt/powershell/pwsh',
-            '/usr/local/bin/pwsh',
-            '/usr/bin/pwsh',
-            '/opt/homebrew/bin/pwsh', // Apple Silicon Homebrew
-            '/opt/microsoft/powershell/7/pwsh'
-        ];
-        for (const candidate of candidates) {
-            if (fs.existsSync(candidate) && isExecutable(candidate)) return candidate;
-        }
-        // Fallback
-        return 'pwsh';
-    }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -894,11 +866,13 @@ export function activate(context: vscode.ExtensionContext) {
     
     try {
         const astState = AstState.getInstance();
+        astState.initialise(context);
+
     // Load AST documentation (generated JSON) once on activation
     const docsPath = path.join(__dirname, 'AstDoc.json');
     DocStore.instance().loadFromFileSync(docsPath);
 
-        // Initialize context states
+        // Initialise context states
         vscode.commands.executeCommand('setContext', 'powershellAst.isAnalyzing', false);
         vscode.commands.executeCommand('setContext', 'powershellAst.hasAstData', false);
 
@@ -939,6 +913,24 @@ export function activate(context: vscode.ExtensionContext) {
                    document.fileName.endsWith('.psm1') || 
                    document.fileName.endsWith('.psd1');
         };
+
+        // Listen for configuration changes to restart PowerShell service if needed
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('powershellAst.powershellFlavor')) {
+                const config = vscode.workspace.getConfiguration('powershellAst');
+                const newFlavor = config.get<string>('powershellFlavor', 'core');
+                
+                vscode.window.showInformationMessage(`PowerShell flavor changed to '${newFlavor}'. Restarting AST service...`);
+                
+                // Use encapsulated restart method
+                astState.restartPowerShellService();
+                
+                // Trigger re-analysis if we have an active editor
+                if (vscode.window.activeTextEditor && isPowerShellDocument(vscode.window.activeTextEditor.document)) {
+                    vscode.commands.executeCommand('powershellAst.refresh');
+                }
+            }
+        }));
 
         // Function to analyze current editor (including unsaved files)
         const analyzeCurrentEditor = async () => {

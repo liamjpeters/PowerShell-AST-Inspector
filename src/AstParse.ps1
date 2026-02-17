@@ -1,10 +1,20 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='Content')]
 param (
     [AllowEmptyString()]
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName='Content')]
     [string]
-    $Content
+    $Content,
+
+    [AllowEmptyString()]
+    [Parameter(Mandatory, ParameterSetName='Base64Content')]
+    [string]
+    $Base64Content
 )
+
+if ($PsCmdlet.ParameterSetName -eq 'Base64Content') {
+    $bytes = [System.Convert]::FromBase64String($Base64Content)
+    $Content = [System.Text.Encoding]::UTF8.GetString($bytes)
+}
 
 $ErrorActionPreference = 'Stop'
 $WarningPreference = 'SilentlyContinue'
@@ -20,12 +30,21 @@ try {
         [ref]$errors
     )
 
-    if ($null -ne $errors -and $errors.Count -gt 0) {
-        throw 'There are syntax errors. Fix these and try again'
-    }
-    
     if ($null -eq $ast) {
         throw 'Failed to parse PowerShell content - AST is null'
+    }
+
+    $parseErrors = @()
+    if ($null -ne $errors -and $errors.Count -gt 0) {
+        foreach ($err in $errors) {
+            $parseErrors += @{
+                message = $err.Message
+                startLine = $err.Extent.StartLineNumber
+                startColumn = $err.Extent.StartColumnNumber
+                endLine = $err.Extent.EndLineNumber
+                endColumn = $err.Extent.EndColumnNumber
+            }
+        }
     }
 
     class AstProperty {
@@ -113,11 +132,11 @@ try {
         $result.Add($nodeData) | Out-Null
     }
 
-    if ($result.Count -gt 0) {
-        Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
-    } else {
-        throw 'Failed to convert AST to flat list'
+    $finalOutput = @{
+        nodes = $result
+        errors = $parseErrors
     }
+    Write-Output ($finalOutput | ConvertTo-Json -Depth 5 -Compress)
 } catch {
     $errorObj = @{
         error   = $true
