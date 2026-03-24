@@ -12,7 +12,6 @@ export class PowerShellService {
 
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
-        this.outputChannel.show(true);
         this.initialise();
     }
 
